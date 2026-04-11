@@ -9,4 +9,5 @@ services:
     environment:
       - JELLYFIN_HOME_IP=${JELLYFIN_HOME_IP:-}
       - JELLYFIN_HOME_PORT=${JELLYFIN_HOME_PORT:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     restart: unless-stopped

@@ -49,6 +49,8 @@ Optional fuer lokale Namensaufloesung von `jellyfin.home` im Container:
 JELLYFIN_HOME_IP=192.168.1.194
 # optional, falls nicht 443:
 # JELLYFIN_HOME_PORT=8096
+# optional fuer mehr Logs:
+# LOG_LEVEL=DEBUG
 ```
 
 2. Danach neu starten:
@@ -66,6 +68,12 @@ Service ist danach erreichbar unter:
 - API Root: `http://localhost:8000`
 - Healthcheck: `http://localhost:8000/health`
 - Swagger UI: `http://localhost:8000/docs`
+
+Logs live ansehen:
+
+```bash
+docker compose logs -f jellyfin-duplicate-finder
+```
 
 ## Web-Interface Nutzung
 
@@ -139,6 +147,7 @@ Wenn die UI nach `Auswahl loeschen` frueher "Geloescht" zeigte, aber beim naechs
 
 - Das Tool prueft jetzt aktiv, ob die geloeschte Item-ID wirklich weg ist.
 - Falls nicht, wird es als Fehler gemeldet (z. B. fehlende Jellyfin-Rechte oder kein Dateisystem-Zugriff).
+- Es schreibt dazu detaillierte Logs pro Item in die Container-Logs.
 
 Antwort enthaelt unter anderem:
 

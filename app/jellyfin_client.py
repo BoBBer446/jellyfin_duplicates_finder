@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 import os
 import socket
 import time
@@ -9,6 +10,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 import requests
 import urllib3
+
+logger = logging.getLogger("jellydup.client")
 
 
 class JellyfinApiError(RuntimeError):
@@ -80,6 +83,7 @@ class JellyfinClient:
                 verify=self.verify_ssl,
                 **request_kwargs,
             )
+            logger.debug("Jellyfin %s %s -> %s", method, request_url, response.status_code)
             response.raise_for_status()
             return response
         except requests.RequestException as exc:
@@ -140,6 +144,13 @@ class JellyfinClient:
             verify=self.verify_ssl,
             **kwargs,
         )
+        logger.warning(
+            "Retrying Jellyfin request over IPv4 fallback: %s %s (Host=%s) -> %s",
+            method,
+            fallback_url,
+            host_header,
+            response.status_code,
+        )
         response.raise_for_status()
         return response
 
@@ -194,6 +205,7 @@ class JellyfinClient:
         url = f"{self.base_url}/Items/{item_id}"
         try:
             response = self._request("DELETE", url, headers=self.headers)
+            logger.info("Delete request sent for item %s -> HTTP %s", item_id, response.status_code)
             if response.status_code not in (200, 202, 204):
                 raise JellyfinApiError(
                     f"Delete for item '{item_id}' failed with status {response.status_code}"
@@ -202,23 +214,26 @@ class JellyfinClient:
             raise JellyfinApiError(f"Delete request failed for '{item_id}': {exc}") from exc
 
     def item_exists(self, item_id: str) -> bool:
-        url = f"{self.base_url}/Items"
-        params = {
-            "Ids": item_id,
-            "Recursive": "true",
-            "Limit": "1",
-            "Fields": "Id",
-        }
+        url = f"{self.base_url}/Items/{item_id}"
+        request_url, request_kwargs = self._apply_jellyfin_home_override(url, {"headers": self.headers})
         try:
-            response = self._request("GET", url, headers=self.headers, params=params)
+            response = requests.request(
+                "GET",
+                request_url,
+                timeout=self.timeout,
+                verify=self.verify_ssl,
+                **request_kwargs,
+            )
         except requests.RequestException as exc:
             raise JellyfinApiError(f"Item existence check failed for '{item_id}': {exc}") from exc
 
-        payload = response.json()
-        items = payload.get("Items", [])
-        if not isinstance(items, list):
-            raise JellyfinApiError("Unexpected Jellyfin response format while checking item existence")
-        return any(str(item.get("Id")) == item_id for item in items)
+        if response.status_code == 404:
+            return False
+        if response.status_code >= 400:
+            raise JellyfinApiError(
+                f"Item existence check failed for '{item_id}' with status {response.status_code}"
+            )
+        return True
 
     def wait_until_item_removed(self, item_id: str, attempts: int = 4, delay_seconds: float = 0.5) -> bool:
         for _ in range(attempts):
@@ -226,3 +241,11 @@ class JellyfinClient:
                 return True
             time.sleep(delay_seconds)
         return False
+
+    def refresh_library(self) -> None:
+        url = f"{self.base_url}/Library/Refresh"
+        try:
+            response = self._request("POST", url, headers=self.headers)
+            logger.info("Triggered Jellyfin library refresh -> HTTP %s", response.status_code)
+        except requests.RequestException as exc:
+            raise JellyfinApiError(f"Library refresh request failed: {exc}") from exc
