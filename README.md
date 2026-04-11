@@ -1,51 +1,157 @@
+# Jellyfin Duplicate Finder (Webservice + Docker)
 
-# Jellyfin Duplikate Finder
+Dieses Projekt ist jetzt ein API-basierter Webservice, um doppelte Filme (oder andere Jellyfin-Typen) zu finden und gezielt zu loeschen.
 
-Dieses Skript durchsucht deine Jellyfin Medienbibliothek nach Duplikaten von Filmen oder Serien und gibt die gefundenen Duplikate aus. Optional bietet es die Möglichkeit, alle gefundenen Duplikate (außer der jeweils größten Datei) zu löschen.
+## Features
 
-## Funktionen
+- REST API mit `FastAPI`
+- Scan direkt gegen Jellyfin (`base_url` + `api_key`)
+- Scan via JSON-Datei-Upload (`multipart/form-data`)
+- Duplikat-Logik mit:
+  - Titel/Jahr-Normalisierung
+  - Sequenz-Erkennung (`CD1`, `Part1`, `Teil1`, ...)
+  - Qualitaets-Ranking (behalte beste Datei nach Aufloesung + Groesse)
+- Loeschen per API mit `dry_run`-Sicherheitsmodus
+- Docker und Docker Compose Support
 
-- Durchsucht die Jellyfin Medienbibliothek nach Duplikaten basierend auf dem Titel.
-- Zeigt die gefundenen Duplikate mit ID, Pfad, Größe und Auflösung an.
-- Optionales Löschen aller Duplikate außer der Datei mit der größten Dateigröße.
+## Projektstruktur
 
-## Voraussetzungen
-
-- Python 3
-- `requests` Bibliothek in Python (kann über `pip install requests` installiert werden)
-- Zugriff auf einen Jellyfin Server und einen gültigen API-Schlüssel
-
-## Einrichtung
-
-Um das Skript zu verwenden, muss zunächst sichergestellt werden, dass Python 3 und die `requests` Bibliothek installiert sind.
-
-Das Skript erfordert die Angabe der Basis-URL deines Jellyfin-Servers sowie eines gültigen API-Schlüssels. Diese Informationen müssen im Skript eingetragen werden:
-
-```python
-base_url = "http://dein_jellyfin_server:8096"
-api_key = "dein_api_schlüssel"
+```text
+app/
+  main.py               # FastAPI Endpunkte
+  jellyfin_client.py    # Jellyfin API Zugriff
+  duplicate_finder.py   # Duplikat-Logik
+  store.py              # In-Memory Scan Sessions
+  models.py             # Request/Response Modelle
+Dockerfile
+docker-compose.yml
+requirements.txt
+jellyfin_duplicates_finder.py   # Optionales CLI Tool
 ```
 
-Ersetze `http://dein_jellyfin_server:8096` mit der URL deines Jellyfin-Servers und `dein_api_schlüssel` mit deinem tatsächlichen API-Schlüssel.
+## Schnellstart mit Docker
 
-## Benutzung
+```bash
+docker compose up --build -d
+```
 
-1. Starte das Skript in einem Terminal oder einer Kommandozeile:
+Service ist danach erreichbar unter:
 
-    ```bash
-    python3 jellyfin_duplicates_finder.py
-    ```
+- API: `http://localhost:8000`
+- Healthcheck: `http://localhost:8000/health`
+- Swagger UI: `http://localhost:8000/docs`
 
-2. Folge den Anweisungen im Skript. Du wirst aufgefordert, den Typ der Medien einzugeben, nach denen gesucht werden soll (Movie/Series).
+## API Nutzung
 
-3. Das Skript zeigt alle gefundenen Duplikate an. Wenn Duplikate gefunden wurden, kannst du wählen, ob du alle Duplikate (außer dem größten) löschen möchtest.
+### 1) Direkt gegen Jellyfin scannen
 
-## Wichtige Hinweise
+```bash
+curl -X POST "http://localhost:8000/api/v1/scans/jellyfin" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "base_url": "http://DEIN-JELLYFIN:8096",
+    "api_key": "DEIN_API_KEY",
+    "include_item_types": ["Movie"],
+    "custom_sequences": ["CD1","CD2","Part1","Part2"]
+  }'
+```
 
-- Stelle sicher, dass du die richtige Basis-URL und den richtigen API-Schlüssel für deinen Jellyfin-Server verwendest.
-- Das Löschen von Dateien kann nicht rückgängig gemacht werden. Sei daher vorsichtig beim Bestätigen der Löschung.
-- Das Skript arbeitet rekursiv durch alle angegebenen Medientypen und kann bei großen Bibliotheken einige Zeit in Anspruch nehmen.
+Antwort enthaelt unter anderem:
 
-## Lizenz
+- `scan_id`
+- `summary`
+- `groups` (inkl. `keep_item_id` und `delete_candidates`)
 
-Dieses Skript ist unter MIT lizenziert.
+### 2) JSON-Datei hochladen und daraus Duplikate berechnen
+
+Die Datei kann entweder:
+
+- ein Jellyfin-Items-Objekt sein: `{"Items":[...]}`
+- oder direkt ein Array: `[...]`
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/scans/file" \
+  -F "file=@items.json" \
+  -F "custom_sequences=CD1,CD2,Part1,Part2"
+```
+
+Hinweis: Loeschen ist nur fuer Scans moeglich, die direkt gegen Jellyfin erstellt wurden, da nur dort gueltige API-Credentials vorhanden sind.
+
+### 3) Ergebnis eines Scans abrufen
+
+```bash
+curl "http://localhost:8000/api/v1/scans/<SCAN_ID>"
+```
+
+### 4) Loeschen testen (`dry_run`)
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/scans/<SCAN_ID>/delete" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "dry_run": true
+  }'
+```
+
+### 5) Duplikate wirklich loeschen
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/scans/<SCAN_ID>/delete" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "dry_run": false
+  }'
+```
+
+Optional nur bestimmte IDs loeschen:
+
+```json
+{
+  "dry_run": false,
+  "item_ids": ["ID1", "ID2"]
+}
+```
+
+## Lokaler Start ohne Docker
+
+```bash
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+## Optional: CLI Nutzung
+
+```bash
+python jellyfin_duplicates_finder.py \
+  --base-url "http://DEIN-JELLYFIN:8096" \
+  --api-key "DEIN_API_KEY" \
+  --types "Movie" \
+  --json
+```
+
+## Repo aktualisieren, committen, pushen
+
+Wenn dein lokales Verzeichnis noch **kein** Git-Repo ist, zuerst klonen:
+
+```bash
+git clone https://github.com/BoBBer446/jellyfin_duplicates_finder.git
+cd jellyfin_duplicates_finder
+```
+
+Dann deine Aenderungen ins Repo uebernehmen und pushen:
+
+```bash
+git add .
+git commit -m "feat: convert duplicate finder to dockerized web API"
+git push origin main
+```
+
+Wenn du auf einem Feature-Branch arbeiten willst:
+
+```bash
+git checkout -b codex/webservice-api
+git add .
+git commit -m "feat: add fastapi service, duplicate scan API and docker setup"
+git push -u origin codex/webservice-api
+```
+

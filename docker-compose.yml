@@ -1,0 +1,10 @@
+services:
+  jellyfin-duplicate-finder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jellyfin-duplicate-finder
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
