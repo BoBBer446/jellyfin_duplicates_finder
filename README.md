@@ -53,6 +53,9 @@ docker compose down
 docker compose up --build -d
 ```
 
+Wenn der Scan-Fehler `Network is unreachable` erscheint, ist die DNS-Aufloesung im Container meist anders als im Browser.
+Dann ist `JELLYFIN_HOME_IP` verpflichtend.
+
 Service ist danach erreichbar unter:
 
 - Web-UI: `http://localhost:8000`
@@ -90,6 +93,34 @@ curl -X POST "http://localhost:8000/api/v1/scans/jellyfin" \
     "custom_sequences": ["CD1","CD2","Part1","Part2"]
   }'
 ```
+
+## Troubleshooting (jellyfin.home)
+
+Fehler:
+
+```text
+Network is unreachable
+```
+
+Loesung:
+
+1. Jellyfin-IP ermitteln (die IP, unter der dein Browser Jellyfin erreicht).
+2. `.env` neben `docker-compose.yml` erstellen/aktualisieren:
+
+```bash
+JELLYFIN_HOME_IP=DEINE_JELLYFIN_IP
+```
+
+3. Container neu starten:
+
+```bash
+docker compose down
+docker compose up --build -d
+```
+
+4. In der Web-UI:
+   - URL: `https://jellyfin.home`
+   - bei selbstsigniertem Zertifikat `SSL-Zertifikat pruefen` deaktivieren
 
 Antwort enthaelt unter anderem:
 
