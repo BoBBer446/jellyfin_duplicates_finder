@@ -290,7 +290,7 @@
           <div class="stack">
             <label for="baseUrl">
               Jellyfin URL
-              <input id="baseUrl" type="text" placeholder="http://192.168.178.36:8096" />
+              <input id="baseUrl" type="text" placeholder="https://jellyfin.home" />
             </label>
             <label for="apiKey">
               API Key
@@ -310,6 +310,10 @@
                 type="text"
                 value="CD1,CD2,DVD1,DVD2,Part1,Part2,Teil1,Teil2"
               />
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; color: var(--ink)">
+              <input id="verifySsl" type="checkbox" checked />
+              SSL-Zertifikat pruefen (bei selbstsigniert aus)
             </label>
             <button id="scanJellyfinBtn" class="primary">Jellyfin scannen</button>
           </div>
@@ -484,6 +488,7 @@
           base_url: document.getElementById("baseUrl").value.trim(),
           api_key: document.getElementById("apiKey").value.trim(),
           include_item_types: includeItemTypes,
+          verify_ssl: document.getElementById("verifySsl").checked,
           custom_sequences: document
             .getElementById("customSequences")
             .value.split(",")

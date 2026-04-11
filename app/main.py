@@ -63,7 +63,11 @@ def root() -> FileResponse:
 
 @app.post("/api/v1/scans/jellyfin", response_model=ScanResult)
 def scan_jellyfin(request: JellyfinScanRequest) -> ScanResult:
-    client = JellyfinClient(str(request.base_url), request.api_key)
+    client = JellyfinClient(
+        str(request.base_url),
+        request.api_key,
+        verify_ssl=request.verify_ssl,
+    )
     try:
         items = client.get_all_media_items(request.include_item_types)
     except JellyfinApiError as exc:
@@ -76,6 +80,7 @@ def scan_jellyfin(request: JellyfinScanRequest) -> ScanResult:
         total_items=summary.total_items,
         base_url=str(request.base_url),
         api_key=request.api_key,
+        verify_ssl=request.verify_ssl,
     )
     return _build_scan_result(session.scan_id)
 
@@ -140,7 +145,11 @@ def delete_duplicates(scan_id: str, request: DeleteRequest) -> DeleteResult:
             failed_ids={},
         )
 
-    client = JellyfinClient(session.base_url, session.api_key)
+    client = JellyfinClient(
+        session.base_url,
+        session.api_key,
+        verify_ssl=session.verify_ssl,
+    )
     deleted_ids: list[str] = []
     failed_ids: dict[str, str] = {}
 

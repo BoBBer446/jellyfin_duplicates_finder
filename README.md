@@ -7,6 +7,7 @@ Dieses Projekt ist jetzt ein Docker-faehiger Webservice mit Web-Interface und AP
 - Web-Interface unter `http://localhost:8000/`
 - REST API mit `FastAPI`
 - Scan direkt gegen Jellyfin (`base_url` + `api_key`)
+- Unterstuetzung fuer `https://jellyfin.home` und selbstsignierte Zertifikate (`verify_ssl=false`)
 - Scan via JSON-Datei-Upload (`multipart/form-data`)
 - Duplikat-Logik mit:
   - Titel/Jahr-Normalisierung
@@ -37,6 +38,21 @@ jellyfin_duplicates_finder.py   # Optionales CLI Tool
 docker compose up --build -d
 ```
 
+Optional fuer lokale Namensaufloesung von `jellyfin.home` im Container:
+
+1. Trage die Jellyfin-IP in `.env` ein:
+
+```bash
+JELLYFIN_HOME_IP=192.168.178.36
+```
+
+2. Danach neu starten:
+
+```bash
+docker compose down
+docker compose up --build -d
+```
+
 Service ist danach erreichbar unter:
 
 - Web-UI: `http://localhost:8000`
@@ -48,13 +64,16 @@ Service ist danach erreichbar unter:
 
 1. Oeffne `http://localhost:8000`.
 2. Trage Jellyfin URL und API Key ein.
-3. Waehle `Movie` (oder zusaetzlich `Series`) und klicke auf `Jellyfin scannen`.
-4. Das Tool markiert alle Loeschkandidaten automatisch, die beste Datei pro Gruppe bleibt als `KEEP`.
-5. Optional:
+   - Beispiel URL: `https://jellyfin.home`
+3. Falls dein Jellyfin ein selbstsigniertes Zertifikat nutzt:
+   - Checkbox `SSL-Zertifikat pruefen` deaktivieren
+4. Waehle `Movie` (oder zusaetzlich `Series`) und klicke auf `Jellyfin scannen`.
+5. Das Tool markiert alle Loeschkandidaten automatisch, die beste Datei pro Gruppe bleibt als `KEEP`.
+6. Optional:
    - mit `Suche in Ergebnissen` filtern
    - mit `Alle markieren` / `Auswahl leeren` anpassen
    - mit `Dry Run` pruefen, was geloescht werden wuerde
-6. Mit `Auswahl loeschen` werden nur die markierten Duplikate geloescht.
+7. Mit `Auswahl loeschen` werden nur die markierten Duplikate geloescht.
 
 ## API Nutzung
 
@@ -64,9 +83,10 @@ Service ist danach erreichbar unter:
 curl -X POST "http://localhost:8000/api/v1/scans/jellyfin" \
   -H "Content-Type: application/json" \
   -d '{
-    "base_url": "http://DEIN-JELLYFIN:8096",
+    "base_url": "https://jellyfin.home",
     "api_key": "DEIN_API_KEY",
     "include_item_types": ["Movie"],
+    "verify_ssl": false,
     "custom_sequences": ["CD1","CD2","Part1","Part2"]
   }'
 ```

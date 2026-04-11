@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import requests
+import urllib3
 
 
 class JellyfinApiError(RuntimeError):
@@ -10,10 +11,13 @@ class JellyfinApiError(RuntimeError):
 
 
 class JellyfinClient:
-    def __init__(self, base_url: str, api_key: str, timeout: int = 30):
+    def __init__(self, base_url: str, api_key: str, timeout: int = 30, verify_ssl: bool = True):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.verify_ssl = verify_ssl
         self.headers = {"X-Emby-Token": api_key}
+        if not self.verify_ssl:
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     def get_all_media_items(self, include_item_types: list[str]) -> list[dict[str, Any]]:
         include_types = ",".join(include_item_types)
@@ -37,6 +41,7 @@ class JellyfinClient:
                     headers=self.headers,
                     params=params,
                     timeout=self.timeout,
+                    verify=self.verify_ssl,
                 )
                 response.raise_for_status()
             except requests.RequestException as exc:
@@ -61,7 +66,12 @@ class JellyfinClient:
     def delete_item(self, item_id: str) -> None:
         url = f"{self.base_url}/Items/{item_id}"
         try:
-            response = requests.delete(url, headers=self.headers, timeout=self.timeout)
+            response = requests.delete(
+                url,
+                headers=self.headers,
+                timeout=self.timeout,
+                verify=self.verify_ssl,
+            )
             if response.status_code not in (200, 202, 204):
                 raise JellyfinApiError(
                     f"Delete for item '{item_id}' failed with status {response.status_code}"

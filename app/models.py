@@ -40,6 +40,7 @@ class JellyfinScanRequest(BaseModel):
     base_url: HttpUrl
     api_key: str = Field(min_length=1)
     include_item_types: list[str] = Field(default_factory=lambda: ["Movie"])
+    verify_ssl: bool = True
     custom_sequences: list[str] | None = None
 
     @model_validator(mode="after")

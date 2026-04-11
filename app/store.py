@@ -18,6 +18,7 @@ class ScanSession:
     total_items: int
     base_url: str | None = None
     api_key: str | None = None
+    verify_ssl: bool = True
 
 
 class ScanStore:
@@ -32,6 +33,7 @@ class ScanStore:
         total_items: int,
         base_url: str | None = None,
         api_key: str | None = None,
+        verify_ssl: bool = True,
     ) -> ScanSession:
         session = ScanSession(
             scan_id=str(uuid4()),
@@ -41,6 +43,7 @@ class ScanStore:
             total_items=total_items,
             base_url=base_url,
             api_key=api_key,
+            verify_ssl=verify_ssl,
         )
         with self._lock:
             self._scans[session.scan_id] = session

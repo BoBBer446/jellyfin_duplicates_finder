@@ -6,5 +6,6 @@ services:
     container_name: jellyfin-duplicate-finder
     ports:
       - "8000:8000"
+    extra_hosts:
+      - "jellyfin.home:${JELLYFIN_HOME_IP:-host-gateway}"
     restart: unless-stopped
-
