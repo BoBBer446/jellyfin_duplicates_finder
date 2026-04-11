@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
 from app.duplicate_finder import find_duplicate_groups
 from app.jellyfin_client import JellyfinApiError, JellyfinClient
@@ -16,6 +18,7 @@ app = FastAPI(
     description="Scan Jellyfin media, find duplicates, and remove duplicate items by API.",
 )
 scan_store = ScanStore()
+STATIC_DIR = Path(__file__).parent / "static"
 
 
 def _build_scan_result(scan_id: str) -> ScanResult:
@@ -54,13 +57,8 @@ def health() -> dict[str, str]:
 
 
 @app.get("/")
-def root() -> dict[str, str]:
-    return {
-        "name": "Jellyfin Duplicate Finder API",
-        "status": "ok",
-        "docs": "/docs",
-        "health": "/health",
-    }
+def root() -> FileResponse:
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 @app.post("/api/v1/scans/jellyfin", response_model=ScanResult)

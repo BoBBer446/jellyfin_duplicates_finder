@@ -1,9 +1,10 @@
 # Jellyfin Duplicate Finder (Webservice + Docker)
 
-Dieses Projekt ist jetzt ein API-basierter Webservice, um doppelte Filme (oder andere Jellyfin-Typen) zu finden und gezielt zu loeschen.
+Dieses Projekt ist jetzt ein Docker-faehiger Webservice mit Web-Interface und API, um doppelte Filme (oder andere Jellyfin-Typen) zu finden und gezielt zu loeschen.
 
 ## Features
 
+- Web-Interface unter `http://localhost:8000/`
 - REST API mit `FastAPI`
 - Scan direkt gegen Jellyfin (`base_url` + `api_key`)
 - Scan via JSON-Datei-Upload (`multipart/form-data`)
@@ -21,6 +22,7 @@ app/
   main.py               # FastAPI Endpunkte
   jellyfin_client.py    # Jellyfin API Zugriff
   duplicate_finder.py   # Duplikat-Logik
+  static/index.html     # Web-Interface
   store.py              # In-Memory Scan Sessions
   models.py             # Request/Response Modelle
 Dockerfile
@@ -37,9 +39,22 @@ docker compose up --build -d
 
 Service ist danach erreichbar unter:
 
-- API: `http://localhost:8000`
+- Web-UI: `http://localhost:8000`
+- API Root: `http://localhost:8000`
 - Healthcheck: `http://localhost:8000/health`
 - Swagger UI: `http://localhost:8000/docs`
+
+## Web-Interface Nutzung
+
+1. Oeffne `http://localhost:8000`.
+2. Trage Jellyfin URL und API Key ein.
+3. Waehle `Movie` (oder zusaetzlich `Series`) und klicke auf `Jellyfin scannen`.
+4. Das Tool markiert alle Loeschkandidaten automatisch, die beste Datei pro Gruppe bleibt als `KEEP`.
+5. Optional:
+   - mit `Suche in Ergebnissen` filtern
+   - mit `Alle markieren` / `Auswahl leeren` anpassen
+   - mit `Dry Run` pruefen, was geloescht werden wuerde
+6. Mit `Auswahl loeschen` werden nur die markierten Duplikate geloescht.
 
 ## API Nutzung
 
@@ -154,4 +169,3 @@ git add .
 git commit -m "feat: add fastapi service, duplicate scan API and docker setup"
 git push -u origin codex/webservice-api
 ```
-
