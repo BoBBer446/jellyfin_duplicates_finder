@@ -65,3 +65,28 @@ def test_find_duplicate_groups_respects_sequence_markers():
     assert summary.duplicate_groups == 0
     assert groups == []
 
+
+def test_find_duplicate_groups_matches_padded_and_hyphenated_sequences():
+    items = [
+        {
+            "Id": "a",
+            "Name": "Film Z",
+            "SortName": "Film Z",
+            "Path": "/media/Film-Z-CD-01.mkv",
+            "ProductionYear": 2002,
+            "MediaSources": [],
+        },
+        {
+            "Id": "b",
+            "Name": "Film Z",
+            "SortName": "Film Z",
+            "Path": "/media/Film-Z-CD-02.mkv",
+            "ProductionYear": 2002,
+            "MediaSources": [],
+        },
+    ]
+
+    groups, summary = find_duplicate_groups(items)
+
+    assert summary.duplicate_groups == 0
+    assert groups == []

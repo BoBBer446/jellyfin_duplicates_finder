@@ -7,7 +7,38 @@ from typing import Any
 
 from app.models import DuplicateGroup, DuplicateItem, ScanSummary
 
-DEFAULT_SEQUENCES = ["CD1", "CD2", "DVD1", "DVD2", "PART1", "PART2", "TEIL1", "TEIL2"]
+_NUMBERED_SEQUENCE_PREFIXES = [
+    "CD",
+    "DVD",
+    "DISC",
+    "DISK",
+    "VCD",
+    "BD",
+    "PART",
+    "PT",
+    "TEIL",
+    "VOL",
+    "VOLUME",
+]
+_ROMAN_PARTS = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"]
+
+DEFAULT_SEQUENCES = list(
+    dict.fromkeys(
+        [
+            *(f"{prefix}{number}" for prefix in _NUMBERED_SEQUENCE_PREFIXES for number in range(1, 13)),
+            *(f"{prefix}{number:02d}" for prefix in _NUMBERED_SEQUENCE_PREFIXES for number in range(1, 13)),
+            *(f"PART{roman}" for roman in _ROMAN_PARTS),
+            *(f"PT{roman}" for roman in _ROMAN_PARTS),
+            *(f"TEIL{roman}" for roman in _ROMAN_PARTS),
+            "DISC-A",
+            "DISC-B",
+            "DISK-A",
+            "DISK-B",
+            "SIDE-A",
+            "SIDE-B",
+        ]
+    )
+)
 
 
 def _normalize_title(name: str, year: int | None) -> str:
@@ -24,10 +55,30 @@ def _sequence_identifier(path: str, custom_sequences: list[str] | None) -> str |
     filename = Path(path).name
     sequence_list = custom_sequences or DEFAULT_SEQUENCES
     for sequence in sequence_list:
-        pattern = rf"(^|[^a-z0-9]){re.escape(sequence)}([^a-z0-9]|$)"
+        pattern = _build_sequence_pattern(sequence)
         if re.search(pattern, filename, flags=re.IGNORECASE):
-            return sequence.upper()
+            return re.sub(r"[\s._-]+", "", sequence).upper()
     return None
+
+
+def _build_sequence_pattern(sequence: str) -> str:
+    normalized = re.sub(r"[\s._-]+", "", sequence).upper()
+    num_match = re.match(r"^([A-Z]+)(\d+)$", normalized)
+    if num_match:
+        prefix, number_raw = num_match.groups()
+        number = int(number_raw)
+        return rf"(^|[^a-z0-9]){re.escape(prefix)}[\s._-]*0*{number}([^a-z0-9]|$)"
+
+    roman_match = re.match(r"^([A-Z]+)([IVX]+)$", normalized)
+    if roman_match:
+        prefix, roman = roman_match.groups()
+        return rf"(^|[^a-z0-9]){re.escape(prefix)}[\s._-]*{re.escape(roman)}([^a-z0-9]|$)"
+
+    tokens = [token for token in re.split(r"[\s._-]+", sequence.strip()) if token]
+    if not tokens:
+        return r"$^"
+    joined = r"[\s._-]*".join(re.escape(token) for token in tokens)
+    return rf"(^|[^a-z0-9]){joined}([^a-z0-9]|$)"
 
 
 def _item_from_raw(item: dict[str, Any]) -> DuplicateItem:

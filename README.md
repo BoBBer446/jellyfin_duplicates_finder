@@ -8,10 +8,11 @@ Dieses Projekt ist jetzt ein Docker-faehiger Webservice mit Web-Interface und AP
 - REST API mit `FastAPI`
 - Scan direkt gegen Jellyfin (`base_url` + `api_key`)
 - Unterstuetzung fuer `https://jellyfin.home` und selbstsignierte Zertifikate (`verify_ssl=false`)
+- Container-Override fuer `jellyfin.home` ueber `.env` (`JELLYFIN_HOME_IP`, optional `JELLYFIN_HOME_PORT`)
 - Scan via JSON-Datei-Upload (`multipart/form-data`)
 - Duplikat-Logik mit:
   - Titel/Jahr-Normalisierung
-  - Sequenz-Erkennung (`CD1`, `Part1`, `Teil1`, ...)
+  - stark erweiterte Sequenz-Erkennung (CD/DVD/Disc/Disk/BD/VCD/Part/PT/Teil/Vol, auch `01`, `CD-01`, `Part III`, `SIDE-A`)
   - Qualitaets-Ranking (behalte beste Datei nach Aufloesung + Groesse)
 - Loeschen per API mit `dry_run`-Sicherheitsmodus
 - Docker und Docker Compose Support
@@ -43,7 +44,9 @@ Optional fuer lokale Namensaufloesung von `jellyfin.home` im Container:
 1. Trage die Jellyfin-IP in `.env` ein:
 
 ```bash
-JELLYFIN_HOME_IP=192.168.178.36
+JELLYFIN_HOME_IP=192.168.1.194
+# optional, falls nicht 443:
+# JELLYFIN_HOME_PORT=8096
 ```
 
 2. Danach neu starten:
@@ -53,8 +56,7 @@ docker compose down
 docker compose up --build -d
 ```
 
-Wenn der Scan-Fehler `Network is unreachable` erscheint, ist die DNS-Aufloesung im Container meist anders als im Browser.
-Dann ist `JELLYFIN_HOME_IP` verpflichtend.
+Wenn `jellyfin.home` im Browser funktioniert, aber im Container nicht, ist die DNS-Aufloesung im Container meist anders als auf dem Host. Dann `JELLYFIN_HOME_IP` setzen und neu starten.
 
 Service ist danach erreichbar unter:
 
@@ -89,8 +91,7 @@ curl -X POST "http://localhost:8000/api/v1/scans/jellyfin" \
     "base_url": "https://jellyfin.home",
     "api_key": "DEIN_API_KEY",
     "include_item_types": ["Movie"],
-    "verify_ssl": false,
-    "custom_sequences": ["CD1","CD2","Part1","Part2"]
+    "verify_ssl": false
   }'
 ```
 
@@ -100,6 +101,8 @@ Fehler:
 
 ```text
 Network is unreachable
+oder
+Connection refused (z. B. auf 192.168.65.254)
 ```
 
 Loesung:
@@ -109,6 +112,8 @@ Loesung:
 
 ```bash
 JELLYFIN_HOME_IP=DEINE_JELLYFIN_IP
+# optional bei anderem Port:
+# JELLYFIN_HOME_PORT=8096
 ```
 
 3. Container neu starten:
@@ -121,6 +126,12 @@ docker compose up --build -d
 4. In der Web-UI:
    - URL: `https://jellyfin.home`
    - bei selbstsigniertem Zertifikat `SSL-Zertifikat pruefen` deaktivieren
+
+Wenn deine Jellyfin-Instanz nur per HTTP auf Port 8096 laeuft, nutze stattdessen:
+
+```text
+http://192.168.1.194:8096
+```
 
 Antwort enthaelt unter anderem:
 

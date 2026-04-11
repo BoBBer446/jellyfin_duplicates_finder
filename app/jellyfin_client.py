@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 import socket
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -22,19 +23,66 @@ class JellyfinClient:
         if not self.verify_ssl:
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+    def _apply_jellyfin_home_override(
+        self,
+        url: str,
+        kwargs: dict[str, Any],
+    ) -> tuple[str, dict[str, Any]]:
+        parsed = urlsplit(url)
+        hostname = (parsed.hostname or "").lower()
+        if hostname != "jellyfin.home":
+            return url, kwargs
+
+        override_ip = os.getenv("JELLYFIN_HOME_IP", "").strip()
+        override_port_raw = os.getenv("JELLYFIN_HOME_PORT", "").strip()
+        if not override_ip:
+            return url, kwargs
+
+        try:
+            ipaddress.ip_address(override_ip)
+        except ValueError:
+            return url, kwargs
+
+        default_port = 443 if parsed.scheme == "https" else 80
+        source_port = parsed.port or default_port
+        target_port = source_port
+        if override_port_raw:
+            try:
+                target_port = int(override_port_raw)
+            except ValueError:
+                target_port = source_port
+
+        if target_port == default_port and parsed.port is None:
+            netloc = override_ip
+        else:
+            netloc = f"{override_ip}:{target_port}"
+
+        host_header = "jellyfin.home"
+        if parsed.port is not None:
+            host_header = f"{host_header}:{parsed.port}"
+
+        next_kwargs = dict(kwargs)
+        headers = dict(next_kwargs.get("headers", {}) or {})
+        headers.setdefault("Host", host_header)
+        next_kwargs["headers"] = headers
+
+        rewritten_url = urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
+        return rewritten_url, next_kwargs
+
     def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
+        request_url, request_kwargs = self._apply_jellyfin_home_override(url, kwargs)
         try:
             response = requests.request(
                 method,
-                url,
+                request_url,
                 timeout=self.timeout,
                 verify=self.verify_ssl,
-                **kwargs,
+                **request_kwargs,
             )
             response.raise_for_status()
             return response
         except requests.RequestException as exc:
-            response = self._retry_with_ipv4_if_needed(method, url, exc, **kwargs)
+            response = self._retry_with_ipv4_if_needed(method, request_url, exc, **request_kwargs)
             if response is not None:
                 return response
             raise
@@ -120,7 +168,9 @@ class JellyfinClient:
             except requests.RequestException as exc:
                 raise JellyfinApiError(
                     "Jellyfin scan failed: "
-                    f"{exc}. If you use docker + local DNS, set JELLYFIN_HOME_IP in .env."
+                    f"{exc}. "
+                    "If jellyfin.home fails in docker, set JELLYFIN_HOME_IP in .env "
+                    "(for example JELLYFIN_HOME_IP=192.168.1.194) and restart compose."
                 ) from exc
 
             payload = response.json()
