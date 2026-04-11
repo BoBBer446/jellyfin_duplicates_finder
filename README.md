@@ -15,6 +15,8 @@ Dieses Projekt ist jetzt ein Docker-faehiger Webservice mit Web-Interface und AP
   - stark erweiterte Sequenz-Erkennung (CD/DVD/Disc/Disk/BD/VCD/Part/PT/Teil/Vol, auch `01`, `CD-01`, `Part III`, `SIDE-A`)
   - Qualitaets-Ranking (behalte beste Datei nach Aufloesung + Groesse)
 - Loeschen per API mit `dry_run`-Sicherheitsmodus
+- Loeschung wird verifiziert (Item muss in Jellyfin wirklich verschwinden)
+- Nach dem Loeschen wird die Scan-Session automatisch frisch mit Jellyfin synchronisiert
 - Docker und Docker Compose Support
 
 ## Projektstruktur
@@ -132,6 +134,11 @@ Wenn deine Jellyfin-Instanz nur per HTTP auf Port 8096 laeuft, nutze stattdessen
 ```text
 http://192.168.1.194:8096
 ```
+
+Wenn die UI nach `Auswahl loeschen` frueher "Geloescht" zeigte, aber beim naechsten Scan noch Duplikate da waren:
+
+- Das Tool prueft jetzt aktiv, ob die geloeschte Item-ID wirklich weg ist.
+- Falls nicht, wird es als Fehler gemeldet (z. B. fehlende Jellyfin-Rechte oder kein Dateisystem-Zugriff).
 
 Antwort enthaelt unter anderem:
 

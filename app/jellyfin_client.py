@@ -3,6 +3,7 @@ from __future__ import annotations
 import ipaddress
 import os
 import socket
+import time
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -199,3 +200,29 @@ class JellyfinClient:
                 )
         except requests.RequestException as exc:
             raise JellyfinApiError(f"Delete request failed for '{item_id}': {exc}") from exc
+
+    def item_exists(self, item_id: str) -> bool:
+        url = f"{self.base_url}/Items"
+        params = {
+            "Ids": item_id,
+            "Recursive": "true",
+            "Limit": "1",
+            "Fields": "Id",
+        }
+        try:
+            response = self._request("GET", url, headers=self.headers, params=params)
+        except requests.RequestException as exc:
+            raise JellyfinApiError(f"Item existence check failed for '{item_id}': {exc}") from exc
+
+        payload = response.json()
+        items = payload.get("Items", [])
+        if not isinstance(items, list):
+            raise JellyfinApiError("Unexpected Jellyfin response format while checking item existence")
+        return any(str(item.get("Id")) == item_id for item in items)
+
+    def wait_until_item_removed(self, item_id: str, attempts: int = 4, delay_seconds: float = 0.5) -> bool:
+        for _ in range(attempts):
+            if not self.item_exists(item_id):
+                return True
+            time.sleep(delay_seconds)
+        return False

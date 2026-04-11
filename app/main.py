@@ -81,6 +81,8 @@ def scan_jellyfin(request: JellyfinScanRequest) -> ScanResult:
         base_url=str(request.base_url),
         api_key=request.api_key,
         verify_ssl=request.verify_ssl,
+        include_item_types=request.include_item_types,
+        custom_sequences=request.custom_sequences,
     )
     return _build_scan_result(session.scan_id)
 
@@ -156,9 +158,27 @@ def delete_duplicates(scan_id: str, request: DeleteRequest) -> DeleteResult:
     for item_id in requested_ids:
         try:
             client.delete_item(item_id)
-            deleted_ids.append(item_id)
+            removed = client.wait_until_item_removed(item_id)
+            if removed:
+                deleted_ids.append(item_id)
+            else:
+                failed_ids[item_id] = (
+                    "Delete acknowledged but item still exists in Jellyfin. "
+                    "Check library write permissions and filesystem access."
+                )
         except JellyfinApiError as exc:
             failed_ids[item_id] = str(exc)
+
+    if session.include_item_types:
+        try:
+            updated_items = client.get_all_media_items(session.include_item_types)
+            updated_groups, updated_summary = find_duplicate_groups(
+                updated_items, session.custom_sequences
+            )
+            scan_store.update_scan_result(scan_id, updated_groups, updated_summary.total_items)
+        except JellyfinApiError:
+            # Keep delete result useful even if post-delete refresh fails.
+            pass
 
     return DeleteResult(
         scan_id=scan_id,

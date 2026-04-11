@@ -19,6 +19,8 @@ class ScanSession:
     base_url: str | None = None
     api_key: str | None = None
     verify_ssl: bool = True
+    include_item_types: list[str] | None = None
+    custom_sequences: list[str] | None = None
 
 
 class ScanStore:
@@ -34,6 +36,8 @@ class ScanStore:
         base_url: str | None = None,
         api_key: str | None = None,
         verify_ssl: bool = True,
+        include_item_types: list[str] | None = None,
+        custom_sequences: list[str] | None = None,
     ) -> ScanSession:
         session = ScanSession(
             scan_id=str(uuid4()),
@@ -44,6 +48,8 @@ class ScanStore:
             base_url=base_url,
             api_key=api_key,
             verify_ssl=verify_ssl,
+            include_item_types=include_item_types,
+            custom_sequences=custom_sequences,
         )
         with self._lock:
             self._scans[session.scan_id] = session
@@ -52,3 +58,11 @@ class ScanStore:
     def get(self, scan_id: str) -> ScanSession | None:
         with self._lock:
             return self._scans.get(scan_id)
+
+    def update_scan_result(self, scan_id: str, groups: list[DuplicateGroup], total_items: int) -> None:
+        with self._lock:
+            session = self._scans.get(scan_id)
+            if not session:
+                return
+            session.groups = groups
+            session.total_items = total_items

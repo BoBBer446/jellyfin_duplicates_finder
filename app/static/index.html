@@ -580,7 +580,16 @@
             return;
           }
 
-          setStatus(`Geloescht: ${body.deleted_ids.length}, Fehler: ${Object.keys(body.failed_ids).length}`, "ok");
+          const failedCount = Object.keys(body.failed_ids).length;
+          if (failedCount > 0) {
+            const firstFailure = Object.entries(body.failed_ids)[0];
+            setStatus(
+              `Geloescht: ${body.deleted_ids.length}, Fehler: ${failedCount}. Beispiel: ${firstFailure[0]} -> ${firstFailure[1]}`,
+              "error",
+            );
+          } else {
+            setStatus(`Geloescht: ${body.deleted_ids.length}, Fehler: 0`, "ok");
+          }
           const refreshed = await fetch(`/api/v1/scans/${scanResult.scan_id}`);
           const refreshedBody = await refreshed.json();
           if (refreshed.ok) {
