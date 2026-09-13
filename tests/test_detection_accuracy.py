@@ -108,8 +108,8 @@ def test_episode_identity_includes_series_season_and_episode_range():
         "IndexNumber": 1,
         "ProviderIds": {},
     }
-    a = movie("a", **base)
-    assert len(find_duplicate_groups([a, movie("b", **base)])[0]) == 1
+    a = movie("a", Path="/a/Series.S01E01.mkv", **base)
+    assert len(find_duplicate_groups([a, movie("b", Path="/b/Series.S01E01.mkv", **base)])[0]) == 1
     for change in [
         {"IndexNumber": 2},
         {"ParentIndexNumber": 2},
@@ -117,7 +117,9 @@ def test_episode_identity_includes_series_season_and_episode_range():
         {"IndexNumberEnd": 2},
         {"IndexNumber": None},
     ]:
-        assert not find_duplicate_groups([a, movie("b", **(base | change))])[0]
+        assert not find_duplicate_groups(
+            [a, movie("b", Path="/b/Series.S01E01.mkv", **(base | change))]
+        )[0]
 
 
 def test_custom_sequences_extend_defaults_and_windows_paths_work():

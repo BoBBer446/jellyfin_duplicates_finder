@@ -1,6 +1,6 @@
 # Jellyfin Duplicate Finder
 
-Version 2.1.0 · Weboberfläche, REST-API und CLI zum Vergleichen von Filmen und Episoden.
+Version 2.1.1 · Weboberfläche, REST-API und CLI zum Vergleichen von Filmen und Episoden.
 
 Der Finder schlägt Duplikate anhand von Jellyfin-Metadaten vor. Er berechnet keine Datei-Hashes
 und kann fehlende oder falsche Metadaten nicht zuverlässig ausgleichen. Die vorgeschlagene
@@ -47,7 +47,9 @@ Ein Neustart verwirft sie. Laufende Löschvorgänge werden nicht durch die Berei
 
 - TMDb-, IMDb- und TVDb-IDs erlauben Treffer bei übersetzten Titeln; widersprüchliche IDs verhindern die Gruppierung.
 - Ohne gemeinsame ID müssen Titel und Erscheinungsjahr übereinstimmen. Jede Gruppe benötigt ein gemeinsames Vergleichsmerkmal.
-- Episoden benötigen Serien-ID, Staffel und Episodennummer; mehrteilige Episoden bleiben getrennt.
+- Episoden benötigen Serien-ID, Staffel, eine positive Episodennummer und passenden Titel. Die Dateinummerierung muss die Metadaten zusätzlich stützen (`S01E01`, `1x01`, `OVA1`, `Folge 56`). Widersprüchliche Nummern verhindern Treffer auch bei gleicher Provider-ID.
+- `E00`-Sammelnummern und Episoden unter `Plex Versions` werden ausgeschlossen. Regulär nummerierte Specials wie `S00E01` bleiben vergleichbar.
+- Abweichende Episodentitel werden konservativ getrennt, auch wenn es sich um Übersetzungen handeln könnte. Ohne Nummerierung im Dateinamen werden Episoden nicht vorgeschlagen. Episodentreffer bleiben manuell zu prüfende Kandidaten, keine bestätigte Inhaltsgleichheit.
 - Fassungsmarker, explizite Editionen und Teil-Marker wie CD1/CD2 werden berücksichtigt.
 - Bei bekannten Laufzeiten verhindert eine Differenz über dem größeren Wert aus 120 Sekunden und 3 % der kürzeren Laufzeit die Gruppierung.
 - Ordner, mehrere Medienquellen, fehlende Pfade, unzureichende Metadaten und gemeinsam referenzierte Pfade werden konservativ ausgeschlossen.

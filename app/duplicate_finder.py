@@ -160,6 +160,49 @@ def _item_from_raw(raw: dict[str, Any]) -> DuplicateItem:
     )
 
 
+_EPISODE_IN_NAME = re.compile(
+    r"(?<![a-z0-9])s(\d{1,3})[\s._-]*e(\d{1,4})"
+    r"(?:(?:[\s._-]*e|[\s._]*-[\s._]*e?)(\d{1,4}))?(?![a-z0-9])",
+    re.I,
+)
+_EPISODE_X_NAME = re.compile(r"(?<![a-z0-9])(\d{1,3})x(\d{1,4})(?:-(\d{1,4}))?(?![a-z0-9])", re.I)
+_ABSOLUTE_IN_NAME = re.compile(
+    r"(?<![a-z0-9])(ova|ona|folge|episode|ep)[\s._-]*(\d{1,4})(?![a-z0-9])", re.I
+)
+
+
+def _episode_filename_evidence(raw, season: int, episode: int, end: int):
+    """Independent filename evidence; Jellyfin may assign the same number to different files."""
+    paths = _paths(raw)
+    if any(
+        "plex versions" in [_normalize_title(part, None) for part in path.split("/")]
+        for path in paths
+    ):
+        return None
+    filenames = [path.rsplit("/", 1)[-1] for path in sorted(paths)]
+    expected = (season, episode, end)
+    path_evidence = False
+    absolute = defaultdict(set)
+    for index, text in enumerate([*filenames, str(raw.get("Name") or "")]):
+        numbered = set()
+        for pattern in (_EPISODE_IN_NAME, _EPISODE_X_NAME):
+            for match in pattern.finditer(text):
+                s, first, last = match.groups()
+                numbered.add((int(s), int(first), int(last or first)))
+        if numbered and numbered != {expected}:
+            return None
+        markers = list(_ABSOLUTE_IN_NAME.finditer(text))
+        if index < len(filenames) and (numbered or markers):
+            path_evidence = True
+        for match in markers:
+            kind, number = match.groups()
+            family = kind.casefold() if kind.casefold() in {"ova", "ona"} else "absolute"
+            absolute[family].add(int(number))
+    if not path_evidence or any(len(numbers) != 1 for numbers in absolute.values()):
+        return None
+    return tuple(sorted((family, next(iter(numbers))) for family, numbers in absolute.items()))
+
+
 def _keys(raw, sequences):
     kind = raw.get("Type") or "Movie"
     partition = (
@@ -170,18 +213,23 @@ def _keys(raw, sequences):
     if kind == "Episode":
         series = raw.get("SeriesId")
         season, episode = raw.get("ParentIndexNumber"), raw.get("IndexNumber")
-        if not series or season is None or episode is None:
+        end = raw.get("IndexNumberEnd") if raw.get("IndexNumberEnd") is not None else episode
+        # Episode zero is frequently a catch-all for unrelated extras, not an identity.
+        if (
+            not series
+            or type(season) is not int
+            or season < 0
+            or type(episode) is not int
+            or episode <= 0
+            or type(end) is not int
+            or end < episode
+        ):
             return []
-        return [
-            (
-                *partition,
-                "episode",
-                str(series),
-                str(season),
-                str(episode),
-                str(raw.get("IndexNumberEnd") or episode),
-            )
-        ]
+        evidence = _episode_filename_evidence(raw, season, episode, end)
+        title = _normalize_title(raw.get("Name") or "", None)
+        if evidence is None or not title:
+            return []
+        return [(*partition, "episode", str(series), season, episode, end, evidence, title)]
     keys = [(*partition, "provider", k, v) for k, v in sorted(_providers(raw).items())]
     title = _normalize_title(
         raw.get("Name") or raw.get("SortName") or "", raw.get("ProductionYear")
@@ -268,7 +316,7 @@ def find_duplicate_groups(raw_items, custom_sequences=None):
         reason = (
             "Gleiche externe Medien-ID"
             if provider
-            else "Gleiche Serie, Staffel und Episode"
+            else "Episodenmetadaten, Dateinummerierung und Titel stimmen überein"
             if episode
             else "Gleicher Titel und Erscheinungsjahr"
         )
@@ -280,7 +328,7 @@ def find_duplicate_groups(raw_items, custom_sequences=None):
                 items=items,
                 delete_candidates=[item.id for item in items[1:]],
                 match_reason=reason,
-                confidence="high" if provider or episode else "medium",
+                confidence="high" if provider else "medium",
                 reclaimable_bytes=sum(item.size for item in items[1:]),
             )
         )

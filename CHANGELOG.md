@@ -1,5 +1,13 @@
 # Änderungen
 
+## 2.1.1 · 13. September 2026
+
+- Fehlzuordnungen bei Halo-OVAs, unterschiedlichen absoluten Yakari-Folgennummern und E00-Extras verhindert.
+- Episoden benötigen zusätzliche Dateinummerierung und konsistente Titel; Jellyfin-Nummern allein reichen nicht mehr.
+- Plex-Optimierungen von Episoden werden nicht als Löschkandidaten vorgeschlagen.
+- Episodentreffer nicht mehr pauschal als starke Metadaten-Treffer eingestuft.
+- Regressionstests anhand der gemeldeten Muster und Schutz gegen das Löschen alter Fehlkandidaten ergänzt.
+
 ## 2.1.0 · 13. September 2026
 
 - Jellyfin-Authentifizierung auf den MediaBrowser-Authorization-Header umgestellt (Issue #1).

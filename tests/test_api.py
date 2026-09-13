@@ -16,7 +16,7 @@ def client(monkeypatch):
 
 
 def test_health_version_and_static_files(client):
-    assert client.get("/health").json() == {"status": "ok", "version": "2.1.0"}
+    assert client.get("/health").json() == {"status": "ok", "version": "2.1.1"}
     assert client.get("/static/app.js").status_code == 200
     assert "Duplicate Finder" in client.get("/").text
 
@@ -163,3 +163,49 @@ def test_file_upload_rejects_excessive_markers(client):
         data={"custom_sequences": ",".join("x" + str(i) for i in range(101))},
     )
     assert response.status_code == 400
+
+
+def test_previously_reported_false_episode_candidate_is_blocked_on_delete(client, monkeypatch):
+    from app.models import DuplicateGroup, DuplicateItem
+
+    a = {
+        "Id": "a",
+        "Type": "Episode",
+        "Name": "Imported episode",
+        "Path": "/Halo.OVA1.mkv",
+        "SeriesId": "series",
+        "ParentIndexNumber": 1,
+        "IndexNumber": 1,
+    }
+    b = dict(a, Id="b", Path="/Halo.OVA2.mkv")
+    group = DuplicateGroup(
+        identifier="Old false match",
+        keep_item_id="a",
+        delete_candidates=["b"],
+        items=[DuplicateItem(id=x["Id"], name=x["Name"], path=x["Path"]) for x in [a, b]],
+    )
+    session = main.scan_store.create(
+        source="jellyfin",
+        groups=[group],
+        total_items=2,
+        base_url="https://example.com",
+        api_key="test",
+        include_item_types=["Episode"],
+    )
+
+    class FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        def get_all_media_items(self, *a):
+            return [a_item, b_item]
+
+        def delete_item(self, *a):
+            raise AssertionError("No media may be deleted")
+
+    a_item, b_item = a, b
+    monkeypatch.setattr(main, "JellyfinClient", FakeClient)
+    result = client.post(
+        "/api/v1/scans/" + session.scan_id + "/delete", json={"dry_run": False, "item_ids": ["b"]}
+    )
+    assert result.status_code == 409
