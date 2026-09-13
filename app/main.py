@@ -4,15 +4,17 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
-from app.duplicate_finder import find_duplicate_groups
+from app import __version__
+from app.duplicate_finder import _paths, find_duplicate_groups
 from app.jellyfin_client import JellyfinApiError, JellyfinClient
 from app.models import DeleteRequest, DeleteResult, JellyfinScanRequest, ScanResult
-from app.store import ScanStore
+from app.store import ScanCapacityError, ScanStore
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.getLogger("jellydup").setLevel(LOG_LEVEL)
@@ -20,11 +22,17 @@ logger = logging.getLogger("jellydup.api")
 
 app = FastAPI(
     title="Jellyfin Duplicate Finder API",
-    version="2.0.0",
+    version=__version__,
     description="Scan Jellyfin media, find duplicates, and remove duplicate items by API.",
 )
 scan_store = ScanStore()
 STATIC_DIR = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.exception_handler(ScanCapacityError)
+async def scan_capacity_error(_request, exc):
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
 
 
 def _build_scan_result(scan_id: str) -> ScanResult:
@@ -41,6 +49,8 @@ def _build_scan_result(scan_id: str) -> ScanResult:
             "total_items": session.total_items,
             "duplicate_groups": len(session.groups),
             "duplicate_items_to_delete": duplicate_items_to_delete,
+            "reclaimable_bytes": sum(group.reclaimable_bytes for group in session.groups),
+            "skipped_items": session.skipped_items,
         },
         groups=session.groups,
     )
@@ -48,18 +58,20 @@ def _build_scan_result(scan_id: str) -> ScanResult:
 
 def _extract_items(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, dict) and isinstance(payload.get("Items"), list):
-        return payload["Items"]
+        payload = payload["Items"]
     if isinstance(payload, list):
+        if any(not isinstance(item, dict) for item in payload):
+            raise HTTPException(status_code=400, detail="Every item must be a JSON object")
         return payload
     raise HTTPException(
         status_code=400,
-        detail="JSON must be either {\"Items\": [...]} or a list of items",
+        detail='JSON must be either {"Items": [...]} or a list of items',
     )
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "version": __version__}
 
 
 @app.get("/")
@@ -90,6 +102,7 @@ def scan_jellyfin(request: JellyfinScanRequest) -> ScanResult:
         source="jellyfin",
         groups=groups,
         total_items=summary.total_items,
+        skipped_items=summary.skipped_items,
         base_url=str(request.base_url),
         api_key=request.api_key,
         verify_ssl=request.verify_ssl,
@@ -108,14 +121,17 @@ def scan_jellyfin(request: JellyfinScanRequest) -> ScanResult:
 
 @app.post("/api/v1/scans/file", response_model=ScanResult)
 async def scan_file(
-    file: UploadFile = File(...),
-    custom_sequences: str | None = Form(default=None),
+    file: Annotated[UploadFile, File()],
+    custom_sequences: Annotated[str | None, Form()] = None,
 ) -> ScanResult:
     if not file.filename:
         raise HTTPException(status_code=400, detail="Missing file name")
 
     try:
-        raw_payload = json.loads((await file.read()).decode("utf-8"))
+        content = await file.read(50 * 1024 * 1024 + 1)
+        if len(content) > 50 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="JSON upload exceeds 50 MiB")
+        raw_payload = json.loads(content.decode("utf-8-sig"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=400, detail=f"Invalid JSON file: {exc}") from exc
 
@@ -123,9 +139,18 @@ async def scan_file(
     sequences = None
     if custom_sequences:
         sequences = [entry.strip() for entry in custom_sequences.split(",") if entry.strip()]
+        if len(sequences) > 100 or any(len(marker) > 64 for marker in sequences):
+            raise HTTPException(
+                status_code=400, detail="At most 100 sequence markers of 64 characters are allowed"
+            )
 
     groups, summary = find_duplicate_groups(items, sequences)
-    session = scan_store.create(source="file", groups=groups, total_items=summary.total_items)
+    session = scan_store.create(
+        source="file",
+        groups=groups,
+        total_items=summary.total_items,
+        skipped_items=summary.skipped_items,
+    )
     return _build_scan_result(session.scan_id)
 
 
@@ -139,6 +164,21 @@ def delete_duplicates(scan_id: str, request: DeleteRequest) -> DeleteResult:
     session = scan_store.get(scan_id)
     if not session:
         raise HTTPException(status_code=404, detail="scan_id not found")
+    if not session.operation_lock.acquire(blocking=False):
+        raise HTTPException(
+            status_code=409,
+            detail="A delete operation is already running for this scan",
+        )
+    try:
+        return _delete_duplicates(scan_id, request)
+    finally:
+        session.operation_lock.release()
+
+
+def _delete_duplicates(scan_id: str, request: DeleteRequest) -> DeleteResult:
+    session = scan_store.get(scan_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="scan_id not found")
 
     if session.source != "jellyfin" or not session.base_url or not session.api_key:
         raise HTTPException(
@@ -146,9 +186,7 @@ def delete_duplicates(scan_id: str, request: DeleteRequest) -> DeleteResult:
             detail="Delete is only available for scans created from Jellyfin API credentials.",
         )
 
-    all_candidates = {
-        item_id for group in session.groups for item_id in group.delete_candidates
-    }
+    all_candidates = {item_id for group in session.groups for item_id in group.delete_candidates}
     id_to_path = {
         item.id: item.path
         for group in session.groups
@@ -162,6 +200,49 @@ def delete_duplicates(scan_id: str, request: DeleteRequest) -> DeleteResult:
             status_code=400,
             detail=f"Unknown item IDs for this scan: {', '.join(invalid_ids)}",
         )
+
+    client = JellyfinClient(session.base_url, session.api_key, verify_ssl=session.verify_ssl)
+    # Revalidate the same candidate/keeper pair against current metadata.
+    if requested_ids:
+        try:
+            fresh_items = client.get_all_media_items(session.include_item_types or ["Movie"])
+            fresh_groups, _ = find_duplicate_groups(fresh_items, session.custom_sequences)
+        except JellyfinApiError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        fresh_paths = {str(item["Id"]): _paths(item) for item in fresh_items}
+        for group in session.groups:
+            if any(candidate in requested_ids for candidate in group.delete_candidates):
+                if any(
+                    item.path.replace(chr(92), "/").rstrip("/")
+                    not in fresh_paths.get(item.id, set())
+                    for item in group.items
+                    if item.id in requested_ids or item.id == group.keep_item_id
+                ):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Media paths changed; run a new scan before deleting",
+                    )
+        fresh_pairs = {
+            (candidate, group.keep_item_id)
+            for group in fresh_groups
+            for candidate in group.delete_candidates
+        }
+        stale = [
+            candidate
+            for group in session.groups
+            for candidate in group.delete_candidates
+            if candidate in requested_ids and (candidate, group.keep_item_id) not in fresh_pairs
+        ]
+        if stale:
+            raise HTTPException(
+                status_code=409,
+                detail="Library changed; run a new scan before deleting",
+            )
+    keepers = {
+        candidate: group.keep_item_id
+        for group in session.groups
+        for candidate in group.delete_candidates
+    }
 
     if request.dry_run:
         logger.info("Dry-run delete: scan_id=%s count=%s", scan_id, len(requested_ids))
@@ -187,6 +268,8 @@ def delete_duplicates(scan_id: str, request: DeleteRequest) -> DeleteResult:
     for item_id in requested_ids:
         logger.info("Deleting item: id=%s path=%s", item_id, id_to_path.get(item_id, "unknown"))
         try:
+            if not client.item_exists(keepers[item_id]):
+                raise JellyfinApiError("The file to keep no longer exists; deletion skipped")
             client.delete_item(item_id)
             removed = client.wait_until_item_removed(item_id, attempts=3, delay_seconds=0.5)
             if removed:
@@ -225,13 +308,20 @@ def delete_duplicates(scan_id: str, request: DeleteRequest) -> DeleteResult:
                 failed_ids[item_id] = str(exc)
                 logger.error("Delete recheck failed: id=%s error=%s", item_id, exc)
 
+    scan_store.remove_items(scan_id, deleted_ids)
+
     if session.include_item_types:
         try:
             updated_items = client.get_all_media_items(session.include_item_types)
             updated_groups, updated_summary = find_duplicate_groups(
                 updated_items, session.custom_sequences
             )
-            scan_store.update_scan_result(scan_id, updated_groups, updated_summary.total_items)
+            scan_store.update_scan_result(
+                scan_id,
+                updated_groups,
+                updated_summary.total_items,
+                updated_summary.skipped_items,
+            )
             logger.info(
                 "Post-delete scan refresh complete: scan_id=%s total_items=%s groups=%s",
                 scan_id,

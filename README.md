@@ -1,249 +1,114 @@
-# Jellyfin Duplicate Finder (Webservice + Docker)
+# Jellyfin Duplicate Finder
 
-Dieses Projekt ist jetzt ein Docker-faehiger Webservice mit Web-Interface und API, um doppelte Filme (oder andere Jellyfin-Typen) zu finden und gezielt zu loeschen.
+Version 2.1.0 · Weboberfläche, REST-API und CLI zum Vergleichen von Filmen und Episoden.
 
-## Features
+Der Finder schlägt Duplikate anhand von Jellyfin-Metadaten vor. Er berechnet keine Datei-Hashes
+und kann fehlende oder falsche Metadaten nicht zuverlässig ausgleichen. Die vorgeschlagene
+Datei zum Behalten wird nach Auflösung, danach Dateigröße ausgewählt. Prüfe Fassungen,
+Tonspuren und Untertitel vor dem Löschen selbst.
 
-- Web-Interface unter `http://localhost:8000/`
-- REST API mit `FastAPI`
-- Scan direkt gegen Jellyfin (`base_url` + `api_key`)
-- Unterstuetzung fuer `https://jellyfin.home` und selbstsignierte Zertifikate (`verify_ssl=false`)
-- Container-Override fuer `jellyfin.home` ueber `.env` (`JELLYFIN_HOME_IP`, optional `JELLYFIN_HOME_PORT`)
-- Scan via JSON-Datei-Upload (`multipart/form-data`)
-- Duplikat-Logik mit:
-  - Titel/Jahr-Normalisierung
-  - stark erweiterte Sequenz-Erkennung (CD/DVD/Disc/Disk/BD/VCD/Part/PT/Teil/Vol, auch `01`, `CD-01`, `Part III`, `SIDE-A`)
-  - Qualitaets-Ranking (behalte beste Datei nach Aufloesung + Groesse)
-- Loeschen per API mit `dry_run`-Sicherheitsmodus
-- Loeschung wird verifiziert (Item muss in Jellyfin wirklich verschwinden)
-- Nach dem Loeschen wird die Scan-Session automatisch frisch mit Jellyfin synchronisiert
-- Docker und Docker Compose Support
-
-## Projektstruktur
-
-```text
-app/
-  main.py               # FastAPI Endpunkte
-  jellyfin_client.py    # Jellyfin API Zugriff
-  duplicate_finder.py   # Duplikat-Logik
-  static/index.html     # Web-Interface
-  store.py              # In-Memory Scan Sessions
-  models.py             # Request/Response Modelle
-Dockerfile
-docker-compose.yml
-requirements.txt
-jellyfin_duplicates_finder.py   # Optionales CLI Tool
-```
-
-## Schnellstart mit Docker
-
-```bash
-docker compose up --build -d
-```
-
-Optional fuer lokale Namensaufloesung von `jellyfin.home` im Container:
-
-1. Trage die Jellyfin-IP in `.env` ein:
-
-```bash
-JELLYFIN_HOME_IP=192.168.1.194
-# optional, falls nicht 443:
-# JELLYFIN_HOME_PORT=8096
-# optional fuer mehr Logs:
-# LOG_LEVEL=DEBUG
-```
-
-2. Danach neu starten:
-
-```bash
-docker compose down
-docker compose up --build -d
-```
-
-Wenn `jellyfin.home` im Browser funktioniert, aber im Container nicht, ist die DNS-Aufloesung im Container meist anders als auf dem Host. Dann `JELLYFIN_HOME_IP` setzen und neu starten.
-
-Service ist danach erreichbar unter:
-
-- Web-UI: `http://localhost:8000`
-- API Root: `http://localhost:8000`
-- Healthcheck: `http://localhost:8000/health`
-- Swagger UI: `http://localhost:8000/docs`
-
-Logs live ansehen:
-
-```bash
-docker compose logs -f jellyfin-duplicate-finder
-```
-
-## Web-Interface Nutzung
-
-1. Oeffne `http://localhost:8000`.
-2. Trage Jellyfin URL und API Key ein.
-   - Beispiel URL: `https://jellyfin.home`
-3. Falls dein Jellyfin ein selbstsigniertes Zertifikat nutzt:
-   - Checkbox `SSL-Zertifikat pruefen` deaktivieren
-4. Waehle `Movie` (oder zusaetzlich `Series`) und klicke auf `Jellyfin scannen`.
-5. Das Tool markiert alle Loeschkandidaten automatisch, die beste Datei pro Gruppe bleibt als `KEEP`.
-6. Optional:
-   - mit `Suche in Ergebnissen` filtern
-   - mit `Alle markieren` / `Auswahl leeren` anpassen
-   - mit `Dry Run` pruefen, was geloescht werden wuerde
-7. Mit `Auswahl loeschen` werden nur die markierten Duplikate geloescht.
-
-## API Nutzung
-
-### 1) Direkt gegen Jellyfin scannen
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/scans/jellyfin" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "base_url": "https://jellyfin.home",
-    "api_key": "DEIN_API_KEY",
-    "include_item_types": ["Movie"],
-    "verify_ssl": false
-  }'
-```
-
-## Troubleshooting (jellyfin.home)
-
-Fehler:
-
-```text
-Network is unreachable
-oder
-Connection refused (z. B. auf 192.168.65.254)
-```
-
-Loesung:
-
-1. Jellyfin-IP ermitteln (die IP, unter der dein Browser Jellyfin erreicht).
-2. `.env` neben `docker-compose.yml` erstellen/aktualisieren:
-
-```bash
-JELLYFIN_HOME_IP=DEINE_JELLYFIN_IP
-# optional bei anderem Port:
-# JELLYFIN_HOME_PORT=8096
-```
-
-3. Container neu starten:
-
-```bash
-docker compose down
-docker compose up --build -d
-```
-
-4. In der Web-UI:
-   - URL: `https://jellyfin.home`
-   - bei selbstsigniertem Zertifikat `SSL-Zertifikat pruefen` deaktivieren
-
-Wenn deine Jellyfin-Instanz nur per HTTP auf Port 8096 laeuft, nutze stattdessen:
-
-```text
-http://192.168.1.194:8096
-```
-
-Wenn die UI nach `Auswahl loeschen` frueher "Geloescht" zeigte, aber beim naechsten Scan noch Duplikate da waren:
-
-- Das Tool prueft jetzt aktiv, ob die geloeschte Item-ID wirklich weg ist.
-- Falls nicht, wird es als Fehler gemeldet (z. B. fehlende Jellyfin-Rechte oder kein Dateisystem-Zugriff).
-- Es schreibt dazu detaillierte Logs pro Item in die Container-Logs.
-
-Antwort enthaelt unter anderem:
-
-- `scan_id`
-- `summary`
-- `groups` (inkl. `keep_item_id` und `delete_candidates`)
-
-### 2) JSON-Datei hochladen und daraus Duplikate berechnen
-
-Die Datei kann entweder:
-
-- ein Jellyfin-Items-Objekt sein: `{"Items":[...]}`
-- oder direkt ein Array: `[...]`
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/scans/file" \
-  -F "file=@items.json" \
-  -F "custom_sequences=CD1,CD2,Part1,Part2"
-```
-
-Hinweis: Loeschen ist nur fuer Scans moeglich, die direkt gegen Jellyfin erstellt wurden, da nur dort gueltige API-Credentials vorhanden sind.
-
-### 3) Ergebnis eines Scans abrufen
-
-```bash
-curl "http://localhost:8000/api/v1/scans/<SCAN_ID>"
-```
-
-### 4) Loeschen testen (`dry_run`)
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/scans/<SCAN_ID>/delete" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "dry_run": true
-  }'
-```
-
-### 5) Duplikate wirklich loeschen
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/scans/<SCAN_ID>/delete" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "dry_run": false
-  }'
-```
-
-Optional nur bestimmte IDs loeschen:
-
-```json
-{
-  "dry_run": false,
-  "item_ids": ["ID1", "ID2"]
-}
-```
-
-## Lokaler Start ohne Docker
-
-```bash
-pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
-
-## Optional: CLI Nutzung
-
-```bash
-python jellyfin_duplicates_finder.py \
-  --base-url "http://DEIN-JELLYFIN:8096" \
-  --api-key "DEIN_API_KEY" \
-  --types "Movie" \
-  --json
-```
-
-## Repo aktualisieren, committen, pushen
-
-Wenn dein lokales Verzeichnis noch **kein** Git-Repo ist, zuerst klonen:
+## Start mit Docker
 
 ```bash
 git clone https://github.com/BoBBer446/jellyfin_duplicates_finder.git
 cd jellyfin_duplicates_finder
+docker compose up --build -d
 ```
 
-Dann deine Aenderungen ins Repo uebernehmen und pushen:
+Die Oberfläche liegt unter `http://localhost:8000`, die API-Dokumentation unter `/docs`.
+`/health` meldet Status und Version. Das Image verwendet feste Abhängigkeiten aus
+`requirements.lock`, läuft ohne Root-Rechte und besitzt einen Healthcheck.
+
+Für Zugriff im eigenen LAN eine `.env` neben der Compose-Datei anlegen:
+
+```dotenv
+BIND_ADDRESS=192.168.1.194
+PORT=8098
+```
+
+Standard ist `127.0.0.1:8000`. Der Dienst besitzt keine eigene Benutzeranmeldung und gehört
+in ein vertrauenswürdiges Netzwerk oder hinter einen authentifizierenden Reverse Proxy.
+Es werden keine Medienverzeichnisse in den Container eingebunden; Löschungen erfolgen über Jellyfin.
+
+## Bedienung
+
+1. Jellyfin-URL und API-Schlüssel eingeben. Filme und/oder Episoden auswählen.
+2. Bibliothek scannen oder einen JSON-Export mit bis zu 50 MiB hochladen.
+3. Treffergrund, Dateipfade, Auflösung und geschätzten Speichergewinn prüfen.
+4. Gewünschte Kandidaten markieren. „Sichtbare markieren“ berücksichtigt nur die dargestellten Treffer.
+5. Mit „Auswahl testen“ die aktuelle Bibliothek erneut prüfen, ohne Dateien zu löschen.
+6. „Auswahl löschen“ verlangt eine Bestätigung und prüft danach, ob die Einträge verschwunden sind.
+
+Datei-Scans können nicht löschen. Der JSON-Ergebnisexport enthält keine API-Schlüssel.
+Scan-Sitzungen liegen im Arbeitsspeicher: maximal 100 Sitzungen, zwei Stunden Gültigkeit.
+Ein Neustart verwirft sie. Laufende Löschvorgänge werden nicht durch die Bereinigung verdrängt.
+
+## Erkennung
+
+- TMDb-, IMDb- und TVDb-IDs erlauben Treffer bei übersetzten Titeln; widersprüchliche IDs verhindern die Gruppierung.
+- Ohne gemeinsame ID müssen Titel und Erscheinungsjahr übereinstimmen. Jede Gruppe benötigt ein gemeinsames Vergleichsmerkmal.
+- Episoden benötigen Serien-ID, Staffel und Episodennummer; mehrteilige Episoden bleiben getrennt.
+- Fassungsmarker, explizite Editionen und Teil-Marker wie CD1/CD2 werden berücksichtigt.
+- Bei bekannten Laufzeiten verhindert eine Differenz über dem größeren Wert aus 120 Sekunden und 3 % der kürzeren Laufzeit die Gruppierung.
+- Ordner, mehrere Medienquellen, fehlende Pfade, unzureichende Metadaten und gemeinsam referenzierte Pfade werden konservativ ausgeschlossen.
+
+Gleiche Pfadangaben werden erkannt. Hardlinks oder Symlinks mit verschiedenen Pfaden lassen sich
+über diese Metadaten nicht verlässlich erkennen. Der Speichergewinn ist daher eine Schätzung.
+Eigene Teil-Marker ergänzen die eingebauten Regeln; maximal 100 Marker mit jeweils 64 Zeichen.
+
+## Jellyfin-Verbindung
+
+Der Client verwendet `Authorization: MediaBrowser Token="…"` für Jellyfin 12 und ältere
+Server, die diesen Header unterstützen. Temporäre Fehler bei GET-Anfragen werden höchstens
+zweimal wiederholt; DELETE und POST werden nicht automatisch wiederholt. Ungültige Antworten
+und wiederholte Seiten führen zu einer Fehlermeldung statt zu unvollständigen Ergebnissen.
+
+Falls `jellyfin.home` im Container nicht auflösbar ist, kann `.env` die folgenden Werte enthalten:
+
+```dotenv
+JELLYFIN_HOME_IP=192.168.1.194
+JELLYFIN_HOME_PORT=8096
+```
+
+Bei HTTP auf Port 8096 ist alternativ die direkte Server-IP möglich. Die TLS-Prüfung ist
+standardmäßig aktiv und kann für eigene selbstsignierte Zertifikate in der Oberfläche abgeschaltet werden.
+
+## API und CLI
 
 ```bash
-git add .
-git commit -m "feat: convert duplicate finder to dockerized web API"
-git push origin main
+curl -X POST http://localhost:8000/api/v1/scans/jellyfin \
+  -H 'Content-Type: application/json' \
+  -d '{"base_url":"http://jellyfin.home:8096","api_key":"DEIN_KEY","include_item_types":["Movie","Episode"]}'
+
+python jellyfin_duplicates_finder.py \
+  --base-url http://jellyfin.home:8096 --api-key DEIN_KEY --types Movie --json
 ```
 
-Wenn du auf einem Feature-Branch arbeiten willst:
+`POST /api/v1/scans/file` erwartet einen Multipart-Dateiupload namens `file` mit einem
+JSON-Array oder `{"Items":[...]}`. `GET /api/v1/scans/{scan_id}` liefert Ergebnisse.
+`POST /api/v1/scans/{scan_id}/delete` akzeptiert `{"dry_run":true,"item_ids":["ID"]}`.
+Ohne `item_ids` sind alle Kandidaten betroffen; `dry_run` ist standardmäßig aktiv.
+Vor dem Löschen werden Kandidaten, zu behaltende Einträge und Pfade erneut geprüft.
+Veränderte Ergebnisse und parallele Löschvorgänge derselben Sitzung liefern HTTP 409.
+
+## Entwicklung unter Linux / WSL
 
 ```bash
-git checkout -b codex/webservice-api
-git add .
-git commit -m "feat: add fastapi service, duplicate scan API and docker setup"
-git push -u origin codex/webservice-api
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest -q
+.venv/bin/ruff check app tests
+.venv/bin/ruff format --check app tests
+.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 18000
 ```
+
+Optionaler Browsertest, während der lokale Server läuft:
+
+```bash
+.venv/bin/pip install playwright
+.venv/bin/python -m playwright install chromium
+.venv/bin/python tests/browser_smoke.py
+```
+
+Die Browserprüfung nutzt Testdaten und simulierte Jellyfin-Löschantworten. Sie löscht keine Medien.
+Für Updates des Containers nach einem Git-Pull erneut `docker compose up --build -d` ausführen.

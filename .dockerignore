@@ -13,3 +13,7 @@ venv/
 dist/
 build/
 
+.env
+.env.*
+data/
+tests/

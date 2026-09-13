@@ -1,2 +1,1 @@
-"""Jellyfin duplicate finder web service."""
-
+__version__ = "2.1.0"
